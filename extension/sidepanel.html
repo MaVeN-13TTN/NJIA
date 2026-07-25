@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Njia — eCitizen passport guide</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="header">
+      <img src="icons/njia-icon-32.png" alt="" class="logo" />
+      <div class="header-text">
+        <h1>Njia</h1>
+        <p class="tagline">Your passport application guide</p>
+      </div>
+      <span id="page-chip" class="chip chip-off" title="Detected step">No step detected</span>
+    </header>
+
+    <div id="status" class="status" hidden></div>
+
+    <main id="messages" class="messages" aria-live="polite"></main>
+
+    <div id="suggestions" class="suggestions" hidden></div>
+
+    <form id="composer" class="composer">
+      <textarea
+        id="question"
+        rows="1"
+        placeholder="Ask about this step…"
+        aria-label="Ask a question about this step"
+      ></textarea>
+      <button id="send" type="submit" title="Send" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M3 11.5 21 3l-8.5 18-2.3-7.2L3 11.5z" fill="currentColor" />
+        </svg>
+      </button>
+    </form>
+
+    <footer class="footer">
+      <button id="clear-btn" class="link-btn" type="button">Clear chat</button>
+      <button id="audit-btn" class="link-btn" type="button" title="Show exactly what Njia would send, and check it against every filled field on this page.">
+        🔒 Privacy audit
+      </button>
+    </footer>
+
+    <div id="audit" class="audit" hidden>
+      <div class="audit-head">
+        <strong>What Njia can see</strong>
+        <button id="audit-close" class="link-btn" type="button">Close</button>
+      </div>
+      <p id="audit-verdict" class="audit-verdict"></p>
+      <p class="audit-note">
+        Everything below is the complete payload that would leave your browser.
+        The page URL is never sent.
+      </p>
+      <pre id="audit-context" class="audit-context"></pre>
+    </div>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
