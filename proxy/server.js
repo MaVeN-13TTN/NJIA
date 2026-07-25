@@ -24,7 +24,7 @@ const path = require("path");
 const express = require("express");
 
 const PORT = 8787;
-const MODEL = process.env.CLAUDE_MODEL || "claude-3-7-sonnet-20250219";
+const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
 const PYTHON = process.env.PYTHON_BIN || "python3";
 const GROUNDING_SCRIPT = path.join(__dirname, "grounding.py");
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -186,10 +186,9 @@ app.post("/ask", async (req, res) => {
 
     if (!r.ok) {
       const errBody = await r.json().catch(() => ({}));
-      // Error type only — Anthropic error messages describe request shape,
-      // but stay cautious and never echo them wholesale into logs.
       console.error(
-        `anthropic ${r.status} ${errBody?.error?.type || "unknown_error"}`,
+        `anthropic ${r.status} ${errBody?.error?.type || "unknown_error"}:`,
+        JSON.stringify(errBody),
       );
       return done(502, { error: "model call failed" });
     }
