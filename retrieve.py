@@ -72,9 +72,26 @@ def search(question: str, page_context: str = "", k: int = TOP_K):
     hits = [chunks[i] for i in ranked[:k] if scores[i] > 0] or [chunks[ranked[0]]]
     return hits
 
+LANGUAGES = {
+    "en": "English",
+    "sw": "Kiswahili",
+    "ki": "Gĩkũyũ (Kikuyu)",
+    "luo": "Dholuo (Luo)",
+}
+    
 
-def grounding_block(question: str, page_context: str = "") -> str:
+def grounding_block(question: str, page_context: str = "",language="en") -> str:
     """The string Blessed prepends to the system prompt."""
+    if language != "en":
+            parts.append(
+                f"Respond in {LANGUAGES[language]}. Keep the following in their "
+                "original form, never translated or altered: all amounts and "
+                "figures (e.g. KES 7,550), form names (Form 19), portal and "
+                "place names (eCitizen, Nyayo House), and the SMS number 22222. "
+                "If you are unsure of a term in the target language, give the "
+                "English term in brackets rather than inventing one."
+            )
+    
     hits = search(question, page_context)
     parts = ["<verified_knowledge>"]
     for h in hits:
