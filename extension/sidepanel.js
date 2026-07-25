@@ -177,6 +177,9 @@ function setBusy(b) {
   busy = b;
   els.send.disabled = b;
   els.question.disabled = b;
+  els.suggestions
+    .querySelectorAll("button")
+    .forEach((btn) => (btn.disabled = b));
   if (!b) drainPendingExplain();
 }
 
@@ -209,6 +212,7 @@ function renderSuggestions() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = q;
+    btn.disabled = busy; // freshly rendered chips honour an in-flight request
     btn.addEventListener("click", () => ask(q));
     els.suggestions.appendChild(btn);
   }
@@ -403,7 +407,14 @@ async function maybeExplain() {
 
 async function ask(question) {
   const q = question.trim();
-  if (!q || busy) return;
+  if (!q) return;
+  // A proactive explanation opens a brief window where explainInFlight is
+  // true but busy isn't (its storage reads) — guard both so requests never
+  // overlap. Park the question in the composer instead of dropping it.
+  if (busy || explainInFlight) {
+    els.question.value = q;
+    return;
+  }
   if (!current.pageId) {
     setStatus(
       "Open one of the eCitizen passport application pages first — Njia answers about the step you're on.",

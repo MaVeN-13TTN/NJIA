@@ -18,22 +18,27 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type !== "njia:context" || sender.tab?.id == null) return;
   const tabId = sender.tab.id;
 
-  chrome.storage.session.set({
-    ["ctx:" + tabId]: {
-      pageId: msg.pageId,
-      context: msg.context,
-      step: msg.step || null,
-    },
-  });
-
   // Badge = "Njia recognises this step" cue on the toolbar icon.
   chrome.action.setBadgeText({ tabId, text: msg.pageId ? "●" : "" });
   chrome.action.setBadgeBackgroundColor({ tabId, color: "#C1502E" });
 
-  // Nudge an open side panel to refresh; rejects harmlessly if none is open.
-  chrome.runtime
-    .sendMessage({ type: "njia:context-updated", tabId })
-    .catch(() => {});
+  // The panel refreshes by READING storage when nudged — so the write must
+  // commit before the nudge, or the panel reads the previous step's context
+  // and the new step silently loses its explanation.
+  chrome.storage.session
+    .set({
+      ["ctx:" + tabId]: {
+        pageId: msg.pageId,
+        context: msg.context,
+        step: msg.step || null,
+      },
+    })
+    .then(() => {
+      // Rejects harmlessly if no panel is open.
+      chrome.runtime
+        .sendMessage({ type: "njia:context-updated", tabId })
+        .catch(() => {});
+    });
 });
 
 // A navigation wipes that tab's context immediately — otherwise the panel
