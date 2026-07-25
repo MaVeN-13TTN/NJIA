@@ -63,8 +63,8 @@ const PAGE_RULES = [
   {
     id: "form",
     // /services/1/apply/1 (entry) and /applications/{id}/edit?step=N (wizard),
-    // plus the mock's form.html
-    urlHints: [/\/apply\b/i, /\/edit\b/i, /[?&]step=/i, /form/i],
+    // plus the mock's form.html and React mock app (Blessed's repo)
+    urlHints: [/\/apply\b/i, /\/edit\b/i, /[?&]step=/i, /form/i, /localhost/i, /127\.0\.0\.1/i],
     urlWeight: 3,
     // A wizard-style ?step=N URL or the /services/N/apply entry route is a
     // strong form signal on its own (the entry page's visible text is too
@@ -75,17 +75,21 @@ const PAGE_RULES = [
     ],
     // "Step 1 / 8" and "Step 1 of 8" progress counters (live wizard chrome).
     // Must stay in sync with STEP_COUNTER below — on a keyword-sparse wizard
-    // step these 2 points are the difference between 5 and threshold 6.
-    textPatterns: [[/\bstep\s*\d+\s*(?:\/|of)\s*\d+\b/i, 2]],
+    // step these points alone can carry detection over the threshold.
+    textPatterns: [[/\bstep\s*\d+\s*(?:\/|of)\s*\d+\b/i, 4]],
     keywords: [
-      // observed on the LIVE wizard, 2026-07-25 (screenshot-verified)
+      // observed on the LIVE wizard (2026-07-25/26) & the React mock app
       ["adult application instructions", 5],
+      ["category", 4],
       ["passport owner", 4],
       ["applicant details", 4],
       ["dual nationality", 4],
-      ["form navigation", 3],
+      ["form navigation", 4],
       ["saved as draft", 3],
-      ["passport type", 3],
+      ["passport type", 4],
+      ["parents details", 4],
+      ["upload documents", 4],
+      ["review application", 4],
       // Form 19 vocabulary (printed form + older flow + mock)
       ["form 19", 6],
       ["first time passport application", 6],
@@ -109,7 +113,7 @@ const PAGE_RULES = [
       ["country of residence", 2],
       ["declaration", 2],
       ["upload", 2],
-      ["preview", 1],
+      ["preview", 2],
       ["passport application", 1], // site-wide header text — weak on purpose
     ],
   },
@@ -167,7 +171,7 @@ const PAGE_RULES = [
   },
 ];
 
-const DETECTION_THRESHOLD = 6;
+const DETECTION_THRESHOLD = 5;
 
 function detectPage(structuralText) {
   const url = location.href;
@@ -312,14 +316,60 @@ function parseWizardStep(clone, parts, counts) {
       if (found) break;
     }
   }
+  if (!found) {
+    // React mock app (Blessed): no textual counter at all — infer position
+    // from the wizard pill list itself. Requires >=3 step-ish pills so a
+    // stray matching button can't fake a wizard.
+    const navItems = clone.querySelectorAll(
+      ".nav-item, .nav-link, [role=tab], [role=radio], .step-indicator, .wizard-step, button",
+    );
+    const stepItems = [...navItems].filter((el) =>
+      /category|instruction|dual|type|details|parent|recommender|upload|review|declaration/i.test(
+        el.textContent || "",
+      ),
+    );
+    if (stepItems.length >= 3) {
+      const idx = stepItems.findIndex(
+        (el) =>
+          el.classList.contains("active") ||
+          el.getAttribute("aria-current") ||
+          el.getAttribute("aria-selected") === "true" ||
+          el.getAttribute("aria-checked") === "true" ||
+          el.querySelector(".active"),
+      );
+      if (idx >= 0) found = { num: idx + 1, total: stepItems.length };
+    }
+  }
+  if (!found) {
+    // Last resorts (total unknown — assume the classic 8, clamped so num
+    // never exceeds it): a bare "Step N" chrome chip, else the wizard's
+    // ?step=N URL parameter. Both only position the guidance; they never
+    // enter the outgoing context.
+    let n = 0;
+    for (const el of clone.querySelectorAll("*")) {
+      if (el.children.length > 4) continue;
+      const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 40) continue;
+      const m = t.match(/\bstep\s*(\d{1,2})\b/i);
+      if (m) {
+        n = +m[1];
+        break;
+      }
+    }
+    if (!n) {
+      const m = location.search.match(/[?&]step=(\d{1,2})\b/i);
+      if (m) n = +m[1];
+    }
+    if (n >= 1 && n <= 20) found = { num: n, total: Math.max(8, n) };
+  }
   if (!found) return null;
   const { num, total } = found;
 
   const titleOk = (t) =>
-    t.length >= 4 &&
-    t.length <= 40 &&
+    t.length >= 3 &&
+    t.length <= 60 &&
     /[a-z]/i.test(t) &&
-    !/step|navigation|passport application/i.test(t) &&
+    !/step\s*\d|navigation|passport application/i.test(t) &&
     !t.includes("@") &&
     !/\d{7,}/.test(t);
 
@@ -335,12 +385,11 @@ function parseWizardStep(clone, parts, counts) {
         '.nav-link.active, .nav-item.active, .active > .nav-link, ' +
         '[class*="--current"], [class*="--active"]',
     );
-  const activeText = active
-    ? (active.textContent || "").replace(/\s+/g, " ").trim()
-    : "";
-  const currentText = ariaCurrent
-    ? (ariaCurrent.textContent || "").replace(/\s+/g, " ").trim()
-    : "";
+  // ^\d+\.\s* strips React-mock pill numbering ("1. Category" -> "Category").
+  const pillText = (el) =>
+    (el.textContent || "").replace(/\s+/g, " ").trim().replace(/^\d+\.\s*/, "");
+  const activeText = active ? pillText(active) : "";
+  const currentText = ariaCurrent ? pillText(ariaCurrent) : "";
   // Only trust the no-marker fallback when it is UNAMBIGUOUS: wizard chrome
   // that renders its pill list twice puts EVERY section name in dupes, and
   // dupes[0] would caption every step with the same wrong title. An empty
@@ -350,10 +399,25 @@ function parseWizardStep(clone, parts, counts) {
   // set" — trustworthy as a title even when the pill is the page's only
   // rendering of the section name (aria-checked is NOT: checked form radios
   // would leak answer captions like "50 pages" in as titles).
+  // Mock-app fallbacks (Blessed), safety-bounded: a broad .active marker may
+  // caption the step ONLY when it is not a form choice — role=radio/checkbox
+  // answers ("50 pages") must never become titles. Failing that, the section
+  // heading itself; titleOk's 60-char cap rejects .active tab PANES.
+  const broadActive = clone.querySelector(
+    '.active:not([role=radio]):not([role=checkbox]):not([role=option]), ' +
+      '[data-active=true]:not([role=radio])',
+  );
+  const broadText = broadActive ? pillText(broadActive) : "";
+  const heading = clone.querySelector(".step-title, .card-title, legend, h2, h3");
+  const headingText = heading
+    ? (heading.textContent || "").replace(/\s+/g, " ").trim()
+    : "";
   const title =
     dupes.find((t) => t === activeText) ||
     (dupes.length === 1 ? dupes[0] : "") ||
-    (currentText && titleOk(currentText) ? currentText : "");
+    (currentText && titleOk(currentText) ? currentText : "") ||
+    (broadText && titleOk(broadText) ? broadText : "") ||
+    (headingText && titleOk(headingText) ? headingText : "");
   return { num, total, title: redact(title) };
 }
 
@@ -502,7 +566,7 @@ if (document.body) {
   push(true);
   observer = new MutationObserver(() => {
     clearTimeout(debounce);
-    debounce = setTimeout(() => push(), 800);
+    debounce = setTimeout(() => push(), 300);
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 }

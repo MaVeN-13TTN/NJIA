@@ -185,7 +185,8 @@ const SECTIONS = [
     check("every explain request named its section title",
       explainReqs.every((c, i) => c.question.includes(`"${SECTIONS[c.question.match(/step (\d+)/)[1] - 1]}"`)));
 
-    check("chip ends on 'Form · step 8/8'", p.chip() === "Form · step 8/8", p.chip());
+    check("chip ends on 'Form · step 8/8: Preview'",
+      p.chip() === "Form · step 8/8: Preview", p.chip());
 
     // persistence: 8 hidden explain turns + 8 answers + 2 Q + 2 A = 20 entries
     const hist = p.local["njia:history"];
@@ -205,7 +206,8 @@ const SECTIONS = [
     check("revisiting step 4 adds no duplicate explanation",
       p.bubbles("assistant").length === 10,
       `got ${p.bubbles("assistant").length}`);
-    check("chip still tracks the revisited step", p.chip() === "Form · step 4/8", p.chip());
+    check("chip still tracks the revisited step",
+      p.chip() === "Form · step 4/8: Applicant Details", p.chip());
   }
 
   // 2 ─────────────────────────────────────────────────────────────────────

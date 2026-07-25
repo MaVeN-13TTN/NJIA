@@ -419,8 +419,53 @@ const APPOINTMENT_HTML = `
     });
     const step = p.lastSent()?.step;
     check("step still parsed", step?.num === 5, JSON.stringify(step));
-    check("ambiguous duplicates → empty title, never a wrong guess",
-      step?.title === "", `got "${step?.title}"`);
+    check("ambiguous duplicates → section heading wins, never a wrong pill",
+      step?.title === "Dual Nationality", `got "${step?.title}"`);
+  }
+
+  // 6d ────────────────────────────────────────────────────────────────────
+  suite("Mock-app fallbacks (merged from Blessed's React tuning)");
+  {
+    // pill-index: no textual counter anywhere — position inferred from the
+    // wizard pill list, total = pill count
+    const PILLS = ["Category", "Instructions", "Passport Type", "Applicant Details",
+      "Dual Nationality", "Parents Details", "Documents Upload", "Review Application"];
+    const pillHtml = PILLS.map((s, i) =>
+      `<button class="nav-link${i === 3 ? " active" : ""}">${s}</button>`).join("");
+    const react = loadPage({
+      html: `<h6>Form Navigation</h6><nav>${pillHtml}</nav><label>Full Name</label>`,
+      url: "http://localhost:5173/apply",
+    });
+    check("React mock (no counter) detected as form",
+      react.lastSent()?.pageId === "form", `got ${react.lastSent()?.pageId}`);
+    check("pill-index fallback: step 4 of 8 from the active pill",
+      react.lastSent()?.step?.num === 4 && react.lastSent()?.step?.total === 8,
+      JSON.stringify(react.lastSent()?.step));
+    check("active pill becomes the title",
+      react.lastSent()?.step?.title === "Applicant Details",
+      `got "${react.lastSent()?.step?.title}"`);
+
+    // URL ?step=N as the last resort on a page with no counter and no pills
+    const urlOnly = loadPage({
+      html: `<h2>Residence Details</h2><label>County</label>`,
+      url: "https://dis.ecitizen.go.ke/applications/9/edit?step=3",
+    });
+    check("URL-only sparse step detected (threshold 5)",
+      urlOnly.lastSent()?.pageId === "form", `got ${urlOnly.lastSent()?.pageId}`);
+    check("?step=3 fallback parsed with clamped total",
+      urlOnly.lastSent()?.step?.num === 3 && urlOnly.lastSent()?.step?.total === 8,
+      JSON.stringify(urlOnly.lastSent()?.step));
+    check("heading becomes the title on sparse steps",
+      urlOnly.lastSent()?.step?.title === "Residence Details",
+      `got "${urlOnly.lastSent()?.step?.title}"`);
+
+    // a bare "Step N" chrome chip outranks the URL parameter
+    const bare = loadPage({
+      html: `<div class="chip-x">Step 3</div><h2>Residence Details</h2><label>County</label>`,
+      url: "https://dis.ecitizen.go.ke/applications/9/edit?step=9",
+    });
+    check("bare 'Step 3' chip wins over ?step=9 in the URL",
+      bare.lastSent()?.step?.num === 3, JSON.stringify(bare.lastSent()?.step));
   }
 
   // 7 ─────────────────────────────────────────────────────────────────────

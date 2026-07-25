@@ -187,7 +187,9 @@ function updateChip() {
   const label = PAGE_LABELS[current.pageId];
   let text = label || "No step detected";
   if (label && current.step) {
-    text = `Form · step ${current.step.num}/${current.step.total}`;
+    text = current.step.title
+      ? `Form · step ${current.step.num}/${current.step.total}: ${current.step.title}`
+      : `Form · step ${current.step.num}/${current.step.total}`;
   }
   els.chip.textContent = text;
   els.chip.title = current.step?.title || "Detected step";
