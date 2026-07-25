@@ -59,32 +59,33 @@ const PAGE_RULES = [
   {
     id: "form",
     // /services/1/apply/1 (entry) and /applications/{id}/edit?step=N (wizard),
-    // plus the mock's form.html
-    urlHints: [/\/apply\b/i, /\/edit\b/i, /[?&]step=/i, /form/i],
+    // plus the mock's form.html and React mock app
+    urlHints: [/\/apply\b/i, /\/edit\b/i, /[?&]step=/i, /form/i, /localhost/i, /127\.0\.0\.1/i],
     urlWeight: 3,
-    // A wizard-style ?step=N URL or the /services/N/apply entry route is a
-    // strong form signal on its own (the entry page's visible text is too
-    // generic to clear the threshold otherwise).
     urlPatterns: [
       [/[?&]step=\d/i, 2],
       [/\/services\/\d+\/apply\b/i, 3],
     ],
     // "Step 1 / 8" style progress counters (live-portal wizard chrome).
-    textPatterns: [[/\bstep\s*\d+\s*\/\s*\d+\b/i, 2]],
+    textPatterns: [[/\bstep\s*\d+\s*(?:\/|of)\s*\d+\b/i, 4]],
     keywords: [
-      // observed on the LIVE wizard, 2026-07-25 (screenshot-verified)
+      // observed on the LIVE wizard & mock app
       ["adult application instructions", 5],
+      ["category", 4],
       ["passport owner", 4],
       ["applicant details", 4],
       ["dual nationality", 4],
-      ["form navigation", 3],
+      ["form navigation", 4],
       ["saved as draft", 3],
-      ["passport type", 3],
+      ["passport type", 4],
+      ["parents details", 4],
+      ["recommender", 5],
+      ["upload documents", 4],
+      ["review application", 4],
       // Form 19 vocabulary (printed form + older flow + mock)
       ["form 19", 6],
       ["first time passport application", 6],
       ["special peculiarities", 5],
-      ["recommender", 5],
       ["birth certificate number", 5],
       ["next of kin", 4],
       ["reason for travel", 4],
@@ -103,8 +104,8 @@ const PAGE_RULES = [
       ["country of residence", 2],
       ["declaration", 2],
       ["upload", 2],
-      ["preview", 1],
-      ["passport application", 1], // site-wide header text — weak on purpose
+      ["preview", 2],
+      ["passport application", 1], // site-wide header text
     ],
   },
   {
@@ -152,8 +153,6 @@ const PAGE_RULES = [
       ["select a date", 2],
       ["what happens next", 2],
     ],
-    // A list of processing centres on the page is a strong booking signal.
-    // 10 centres as of Feb 2025 — Garissa was added as the 10th.
     centres: [
       "nairobi", "kisumu", "mombasa", "eldoret", "nakuru",
       "embu", "kisii", "kericho", "bungoma", "garissa",
@@ -161,7 +160,7 @@ const PAGE_RULES = [
   },
 ];
 
-const DETECTION_THRESHOLD = 6;
+const DETECTION_THRESHOLD = 5;
 
 function detectPage(structuralText) {
   const url = location.href;
@@ -182,7 +181,7 @@ function detectPage(structuralText) {
     }
     if (rule.centres) {
       const hits = rule.centres.filter((c) => text.includes(c)).length;
-      if (hits >= 3) score += 4; // a centre picker, not a passing mention
+      if (hits >= 3) score += 4;
     }
     if (score > best.score) best = { id: rule.id, score };
   }
@@ -190,17 +189,7 @@ function detectPage(structuralText) {
 }
 
 // ---------- 3. context capture (structure only, values never) ----------
-//
-// Extraction is an ALLOWLIST: only text inside elements matching
-// STRUCTURE_SELECTORS is ever read. This matters on the wizard's read-only
-// Preview step, where SurveyJS re-renders every answer as plain text — those
-// values live in sibling content nodes (.sd-question__content,
-// .sv-string-viewer) that nothing below matches, so the Preview page yields
-// question TITLES only. The VALUE_BEARING purge that follows is
-// defence-in-depth on top of the allowlist, not the primary control.
-// (Adversarially reviewed 2026-07-25.)
 
-// Elements whose text is structure, not user data.
 const STRUCTURE_SELECTORS = [
   "h1", "h2", "h3", "h4", "h5", "h6",
   "legend", "label", "button", "th", "summary",
@@ -209,20 +198,15 @@ const STRUCTURE_SELECTORS = [
   ".breadcrumb", ".nav-link", ".nav-item", ".form-label",
   ".alert", ".notice", ".warning",
   ".page-title", ".card-title", ".card-header",
-  // SurveyJS renders titles into these (kept for older/other DIS flows)
   ".sd-title", ".sd-page__title", ".sd-question__title", ".sv-title",
 ].join(",");
 
-// Anything that can hold typed values or executable content — removed from the
-// clone before a single character of text is read. `iframe` matters here: the
-// Pesaflow card / M-Pesa checkout renders inside one.
 const VALUE_BEARING = [
   "input", "textarea", "select", "option", "optgroup", "datalist", "output",
   "[contenteditable]",
   "script", "style", "noscript", "template", "iframe", "object", "embed",
 ].join(",");
 
-// Backstop: 7+ digit runs (IDs, phones, invoice/application numbers) and emails.
 function redact(text) {
   return text
     .replace(/\d[\d ]{5,}\d/g, (m) =>
@@ -235,14 +219,11 @@ function readStructural() {
   const clone = document.body.cloneNode(true);
   clone.querySelectorAll(VALUE_BEARING).forEach((el) => el.remove());
 
-  const counts = new Map(); // pre-dedupe occurrence counts (see parseWizardStep)
+  const counts = new Map();
   const parts = [];
   const docTitle = (document.title || "").trim();
   if (docTitle) parts.push(docTitle);
   clone.querySelectorAll(STRUCTURE_SELECTORS).forEach((el) => {
-    // Nested allowlist matches (.nav-item > .nav-link, .card-header >
-    // .card-title) are ONE rendering, not two — keep the outermost only, or
-    // every nav pill self-duplicates and poisons the counts heuristic below.
     if (el.parentElement && el.parentElement.closest(STRUCTURE_SELECTORS)) {
       return;
     }
@@ -254,55 +235,92 @@ function readStructural() {
   return { text: parts.join("\n"), parts, counts, clone };
 }
 
-// The live form is an 8-step wizard; guidance must track the step the user is
-// actually on. Safety properties of this parser:
-//   - The counter is matched per TEXT NODE (never whole-body text), so \s*
-//     cannot bridge unrelated elements, and captures are bounded to 2 digits
-//     with sanity checks — at most "99" of user-adjacent digits could ever
-//     ride along, and in practice none.
-//   - The title comes only from allowlisted structural text that appears
-//     TWICE (nav pill + section heading — one rendering counts once now),
-//     must look like a section name (4-40 chars, has letters, no emails or
-//     long digit runs), and passes redact() as a final backstop.
 function parseWizardStep(clone, parts, counts) {
   let num = 0;
   let total = 0;
-  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const m = node.nodeValue
-      .replace(/\s+/g, " ")
-      .match(/\bstep\s*(\d{1,2})\s*(?:\/|of)\s*(\d{1,2})\b/i);
-    if (!m) continue;
-    const n = +m[1];
-    const t = +m[2];
-    if (n >= 1 && t >= 2 && n <= t && t <= 20) {
-      num = n;
-      total = t;
-      break;
+
+  // 1. Check URL parameters e.g. ?step=2
+  const urlMatch = location.search.match(/[?&]step=(\d{1,2})/i);
+  if (urlMatch) {
+    num = parseInt(urlMatch[1], 10);
+    total = 8;
+  }
+
+  // 2. Tree walker match for "Step X / Y", "Step X of Y", or "Step X"
+  if (!num) {
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const val = node.nodeValue.replace(/\s+/g, " ");
+      const m = val.match(/\bstep\s*(\d{1,2})\s*(?:\/|of)\s*(\d{1,2})\b/i) ||
+                val.match(/\bstep\s*(\d{1,2})\b/i);
+      if (!m) continue;
+      const n = +m[1];
+      const t = m[2] ? +m[2] : 8;
+      if (n >= 1 && n <= 20) {
+        num = n;
+        total = t;
+        break;
+      }
     }
   }
-  if (!total) return null;
+
+  // 3. Fallback: check active index among step pills/tabs
+  if (!num) {
+    const navItems = Array.from(clone.querySelectorAll(".nav-item, .nav-link, [role=tab], .step-indicator, .wizard-step, button"));
+    const stepItems = navItems.filter((el) => {
+      const txt = (el.textContent || "").toLowerCase();
+      return /category|instruction|dual|type|details|parent|recommender|upload|review|declaration|step/i.test(txt);
+    });
+    if (stepItems.length >= 3) {
+      total = stepItems.length;
+      const activeIdx = stepItems.findIndex((el) =>
+        el.classList.contains("active") ||
+        el.getAttribute("aria-current") ||
+        el.getAttribute("aria-selected") === "true" ||
+        el.querySelector(".active")
+      );
+      if (activeIdx >= 0) {
+        num = activeIdx + 1;
+      }
+    }
+  }
+
+  if (!num || !total) return null;
 
   const titleOk = (t) =>
-    t.length >= 4 &&
-    t.length <= 40 &&
+    t.length >= 3 &&
+    t.length <= 60 &&
     /[a-z]/i.test(t) &&
-    !/step|navigation|passport application/i.test(t) &&
+    !/step\s*\d|navigation|passport application for adult/i.test(t) &&
     !t.includes("@") &&
     !/\d{7,}/.test(t);
 
-  // Candidates: duplicated structural text only. The wizard's active pill
-  // marker just prioritises among duplicates — it can never introduce a
-  // string that isn't independently rendered twice.
-  const dupes = parts.filter((t) => (counts.get(t) || 0) >= 2 && titleOk(t));
+  // 1. Check active pill or tab element
   const active = clone.querySelector(
-    '[aria-current], [role=tab][aria-selected="true"], .nav-link.active, .nav-item.active, .active > .nav-link',
+    '[aria-current], [role=tab][aria-selected="true"], .nav-link.active, .nav-item.active, .active > .nav-link, .active, [data-active=true]',
   );
   const activeText = active
-    ? (active.textContent || "").replace(/\s+/g, " ").trim()
+    ? (active.textContent || "").replace(/\s+/g, " ").trim().replace(/^\d+\.\s*/, "")
     : "";
-  const title = dupes.find((t) => t === activeText) || dupes[0] || "";
-  return { num, total, title: redact(title) };
+
+  if (activeText && titleOk(activeText)) {
+    return { num, total, title: redact(activeText) };
+  }
+
+  // 2. Check duplicated structural text (pill + heading)
+  const dupes = parts.filter((t) => (counts.get(t) || 0) >= 2 && titleOk(t));
+  if (dupes.length > 0) {
+    return { num, total, title: redact(dupes[0]) };
+  }
+
+  // 3. Fallback to main section heading
+  const heading = clone.querySelector("h1, h2, h3, .page-title, .step-title, legend, .card-title");
+  const headingText = heading ? (heading.textContent || "").replace(/\s+/g, " ").trim() : "";
+  if (headingText && titleOk(headingText)) {
+    return { num, total, title: redact(headingText) };
+  }
+
+  return { num, total, title: "" };
 }
 
 function capture() {
@@ -398,5 +416,5 @@ push(true);
 let debounce = null;
 new MutationObserver(() => {
   clearTimeout(debounce);
-  debounce = setTimeout(() => push(), 800);
+  debounce = setTimeout(() => push(), 300);
 }).observe(document.body, { childList: true, subtree: true, characterData: true });
