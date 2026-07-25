@@ -1,7 +1,7 @@
 ---
-source: https://immigration.go.ke/passport-section/
+source: https://immigration.go.ke/passport-section/ (archived 2026-04-11; Garissa note added from official DIS announcements)
 slug: passport-section
-verified: 2026-07-25
+verified: 2026-07-26
 ---
 
 # Kenya Passport and Travel Documents (official DIS page)
@@ -9,6 +9,6 @@ The Government of Kenya issues ePassports to citizens, valid for 10 years, in co
 
 Passport applicants apply online and pay requisite fees through the eCitizen portal at dis.ecitizen.go.ke. The various categories of Kenya passports and applicable fees are described on the DIS fees page.
 
-Upon completing the application and paying applicable fees, applicants must book an appointment through the eCitizen portal and select one of the following Passport Processing Centres to submit applications and enrol biometrics (photo capture / biometric): Nairobi (Nyayo House), Kisumu, Mombasa, Eldoret, Nakuru, Embu, Kisii, Kericho and Bungoma.
+Upon completing the application and paying applicable fees, applicants must book an appointment through the eCitizen portal and select one of the Passport Processing Centres to submit applications and enrol biometrics (photo capture / biometric): Nairobi (Nyayo House), Kisumu, Mombasa, Eldoret, Nakuru, Embu, Kisii, Kericho and Bungoma — plus Garissa, opened February 2025, which the static DIS page predates (ten centres in total).
 
 Kenyan Diaspora in need of passport services may contact the nearest Kenya High Commission or Embassy for appointments and further assistance.

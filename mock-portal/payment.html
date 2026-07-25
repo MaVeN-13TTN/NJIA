@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payment — eCitizen (mock)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="crest"></div>
+    <div>
+      <div class="dept">Directorate of Immigration Services</div>
+      <div class="sub">Republic of Kenya · eCitizen (local demo replica)</div>
+    </div>
+  </header>
+
+  <main>
+    <h1>Payment for Passport Application</h1>
+
+    <div class="card">
+      <div class="card-title">Invoice Summary</div>
+      <table>
+        <tr><th>Payment Reference</th><td>PPA-2026-004417</td></tr>
+        <tr><th>Item</th><td>Ordinary A Series — 34 pages</td></tr>
+        <tr><th>Amount Due</th><td>KES 7,550</td></tr>
+        <tr><th>Convenience Fee</th><td>Included (KES 50)</td></tr>
+      </table>
+      <div class="notice info">
+        Amount due: KES 7,550 for the 34-page A Series booklet, including the
+        KES 50 eCitizen convenience fee.
+      </div>
+    </div>
+
+    <div class="card">
+      <fieldset>
+        <legend>Select your preferred payment method</legend>
+        <label class="choice"><input type="radio" name="pm" checked /> M-Pesa</label>
+        <label class="choice"><input type="radio" name="pm" /> Airtel Money</label>
+        <label class="choice"><input type="radio" name="pm" /> Debit / Credit Card</label>
+        <label class="choice"><input type="radio" name="pm" /> Online Banking</label>
+      </fieldset>
+
+      <div class="field">
+        <label for="phone">Phone number for the M-Pesa prompt (Paybill 222222)</label>
+        <input id="phone" type="tel" value="0712 345 678" />
+      </div>
+
+      <div class="notice">
+        Download BOTH invoices before closing this tab — the Government Copy
+        and the Customer Copy. Print both for your appointment day.
+      </div>
+
+      <div class="actions">
+        <button type="button" class="primary">Proceed to Pay</button>
+        <a class="btn" href="appointment.html">Continue to appointment →</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
