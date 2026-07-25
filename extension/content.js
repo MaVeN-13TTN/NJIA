@@ -62,7 +62,20 @@ const PAGE_RULES = [
     // plus the mock's form.html
     urlHints: [/\/apply\b/i, /\/edit\b/i, /[?&]step=/i, /form/i],
     urlWeight: 3,
+    // A wizard-style ?step=N URL is a strong form signal on its own.
+    urlPatterns: [[/[?&]step=\d/i, 2]],
+    // "Step 1 / 8" style progress counters (live-portal wizard chrome).
+    textPatterns: [[/\bstep\s*\d+\s*\/\s*\d+\b/i, 2]],
     keywords: [
+      // observed on the LIVE wizard, 2026-07-25 (screenshot-verified)
+      ["adult application instructions", 5],
+      ["passport owner", 4],
+      ["applicant details", 4],
+      ["dual nationality", 4],
+      ["form navigation", 3],
+      ["saved as draft", 3],
+      ["passport type", 3],
+      // Form 19 vocabulary (printed form + older flow + mock)
       ["form 19", 6],
       ["first time passport application", 6],
       ["special peculiarities", 5],
@@ -153,6 +166,12 @@ function detectPage(structuralText) {
   for (const rule of PAGE_RULES) {
     let score = 0;
     if (rule.urlHints.some((re) => re.test(url))) score += rule.urlWeight;
+    for (const [re, weight] of rule.urlPatterns || []) {
+      if (re.test(url)) score += weight;
+    }
+    for (const [re, weight] of rule.textPatterns || []) {
+      if (re.test(text)) score += weight;
+    }
     for (const [kw, weight] of rule.keywords) {
       if (text.includes(kw)) score += weight;
     }
@@ -178,13 +197,14 @@ function detectPage(structuralText) {
 
 // Elements whose text is structure, not user data.
 const STRUCTURE_SELECTORS = [
-  "h1", "h2", "h3", "h4",
+  "h1", "h2", "h3", "h4", "h5", "h6",
   "legend", "label", "button", "th", "summary",
-  "[role=heading]", "[role=tab]", "[role=alert]",
-  ".step", ".steps", ".step-indicator", ".breadcrumb",
+  "[role=heading]", "[role=tab]", "[role=alert]", "[role=progressbar]",
+  ".step", ".steps", ".step-indicator", ".step-title", ".wizard-step",
+  ".breadcrumb", ".nav-link", ".nav-item", ".form-label",
   ".alert", ".notice", ".warning",
   ".page-title", ".card-title", ".card-header",
-  // SurveyJS (the real DIS form engine) renders titles into these
+  // SurveyJS renders titles into these (kept for older/other DIS flows)
   ".sd-title", ".sd-page__title", ".sd-question__title", ".sv-title",
 ].join(",");
 
