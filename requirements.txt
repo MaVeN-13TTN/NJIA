@@ -1,3 +1,6 @@
+requests
 rank_bm25
 beautifulsoup4
-sentence_transformers
+# Optional MiniLM reranker (USE_EMBEDDINGS=1) — ~90MB model + torch download.
+# Decide before midnight, not at 2 AM on venue wifi (see RAG-PIPELINE.md):
+# sentence_transformers
