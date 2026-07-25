@@ -1,0 +1,11 @@
+{
+  "name": "njia-tests",
+  "private": true,
+  "description": "Local verification harness for the Njia extension — runs content.js against simulated portal DOMs in jsdom, no browser needed.",
+  "scripts": {
+    "test": "node content.test.js && node sidepanel.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

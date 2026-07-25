@@ -3,6 +3,7 @@ proxy/.env
 
 # dependencies / caches
 proxy/node_modules/
+tests/node_modules/
 __pycache__/
 *.pyc
 .venv/

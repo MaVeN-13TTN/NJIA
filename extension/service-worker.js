@@ -47,12 +47,25 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 // the content script's MutationObserver covers those.) `status` needs no
 // extra permission, unlike changeInfo.url.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status !== "loading") return;
-  chrome.storage.session.remove("ctx:" + tabId);
-  chrome.action.setBadgeText({ tabId, text: "" });
-  chrome.runtime
-    .sendMessage({ type: "njia:context-updated", tabId })
-    .catch(() => {});
+  if (changeInfo.status === "loading") {
+    chrome.action.setBadgeText({ tabId, text: "" });
+    // Same write-before-nudge invariant as the context path above: the panel
+    // must never win a race and read the departed page's ctx as current.
+    chrome.storage.session.remove("ctx:" + tabId).then(() => {
+      chrome.runtime
+        .sendMessage({ type: "njia:context-updated", tabId })
+        .catch(() => {});
+    });
+  } else if (changeInfo.status === "complete") {
+    // Second nudge once the new document commits: the panel's fallback pull
+    // at 'loading' can race the navigation and get answered by the OLD page's
+    // still-alive content script. Refreshing now corrects the panel against
+    // what the new page actually pushed (or against nothing, if it's not a
+    // checkpoint page).
+    chrome.runtime
+      .sendMessage({ type: "njia:context-updated", tabId })
+      .catch(() => {});
+  }
 });
 
 // Drop per-tab context once its tab closes.

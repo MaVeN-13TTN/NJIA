@@ -47,12 +47,12 @@ Four thin components. Data flows one way: sanitised page structure + question **
 
 - **Extension:** vanilla JS + HTML + CSS. **No framework, no bundler.** This dodges the MV3 CSP/remote-script trap and saves build time. Load unpacked; no build step.
 - **Proxy:** Node + a tiny Express server. `fetch` to the Anthropic Messages API.
-- **Mock portal:** three static HTML pages that mimic the eCitizen structure and labels (see Demo setup).
+- **Mock portal:** three static HTML pages that mimic the eCitizen structure and labels. Lives in its **own repo** (Blessed's), cloned and served locally for the demo — this repo holds only the extension, the knowledge/data pipeline, and the proxy.
 
 ## Repo structure
 
 ```
-njia/
+njia/                      # this repo — extension + knowledge/data + proxy
   extension/
     manifest.json
     service-worker.js      # opens side panel; message routing
@@ -62,17 +62,21 @@ njia/
     sidepanel.css
     icons/                 # njia-icon-16/32/48/128.png (already generated)
   proxy/
-    server.js              # /ask handler; holds the key; injects knowledge pack
-    knowledge/passport.js  # the verified grounding pack (see below)
+    server.js              # /ask handler; holds the key; injects the grounding block
+    grounding.py           # Node→Python bridge to the retriever
     package.json
-    .env.example           # ANTHROPIC_API_KEY= , CLAUDE_MODEL=
-  mock-portal/
-    form.html
-    payment.html
-    appointment.html
-    styles.css
+    .env.example           # ANTHROPIC_API_KEY= , CLAUDE_MODEL= , PYTHON_BIN=
+  data/
+    raw/                   # verified knowledge sources (markdown, version-stamped)
+    index/chunks.json      # committed BM25 chunk index
+  scrape.py                # fetch official pages → data/raw/
+  build_index.py           # chunk data/raw/ → data/index/chunks.json
+  retrieve.py              # BM25 retrieval + grounding_block()
+  requirements.txt         # Python deps the proxy needs at runtime (rank_bm25 …)
   README.md
 ```
+
+The **mock portal** (three static demo pages) is a separate repo maintained by Blessed — clone it alongside this one when preparing the demo.
 
 ## Dev / run commands
 
@@ -87,11 +91,15 @@ npm install
 node server.js            # serves on http://localhost:8787
 ```
 
-**Mock portal (demo target):**
+**Portal to test against:**
+
+- **Development:** the live portal. Log in yourself at `dis.ecitizen.go.ke` and open the passport application — the extension activates on the form / payment / appointment pages (never on the login itself).
+- **Demo:** the mock portal, from its own repo. Clone it next to this repo and serve it locally:
 
 ```bash
-cd mock-portal
-python3 -m http.server 5500   # pages at http://localhost:5500/form.html etc.
+git clone <mock-portal-repo-url> njia-mock-portal   # Blessed's repo — URL TBD
+cd njia-mock-portal
+python -m http.server 5500    # pages at http://localhost:5500/form.html etc.
 ```
 
 ## Non-negotiable rules (security by design — this is our differentiator)
@@ -224,7 +232,7 @@ app.post("/ask", async (req, res) => {
 ## Definition of done (for the night)
 
 - Load unpacked works; clicking the Njia icon opens the side panel on a checkpoint page.
-- On each of the three mock pages, the panel shows a correct proactive explanation of that step.
+- On each of the three checkpoint pages, the panel shows a correct proactive explanation of that step.
 - The user can ask at least these and get grounded answers: "how much will this cost and how do I pay?", "which centre should I book from Thika?", "what do I bring to the appointment?"
 - No input values or credentials ever leave the browser (verify in the network tab during the demo).
-- Runs against the local mock portal end to end.
+- Verified end to end against the **live eCitizen portal** during development; the demo runs against the locally-served **mock portal** (separate repo).

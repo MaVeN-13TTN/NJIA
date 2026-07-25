@@ -28,7 +28,12 @@
 
 // ---------- 1. auth bail-out ----------
 
-const AUTH_PATH = /\/(auth|login|logout|register|authorize|password|otp)\b/i;
+const AUTH_PATH =
+  /\/(auth|login|logout|register|authorize|password|otp|signin|sign-in|sso|mfa|2fa)\b/i;
+// NOTE: no site-wide brand strings here — "One Login" is eCitizen's tagline,
+// and a tagline in the title/footer would mute the extension on every page.
+// Markers must be auth-specific; the password-field and URL checks are the
+// decisive signals anyway.
 const AUTH_MARKERS = [
   "password",
   "login with otp",
@@ -38,7 +43,6 @@ const AUTH_MARKERS = [
   "forgot password",
   "create an account",
   "enter the otp sent",
-  "one login",
 ];
 
 function looksLikeAuth(structuralText) {
@@ -69,8 +73,10 @@ const PAGE_RULES = [
       [/[?&]step=\d/i, 2],
       [/\/services\/\d+\/apply\b/i, 3],
     ],
-    // "Step 1 / 8" style progress counters (live-portal wizard chrome).
-    textPatterns: [[/\bstep\s*\d+\s*\/\s*\d+\b/i, 2]],
+    // "Step 1 / 8" and "Step 1 of 8" progress counters (live wizard chrome).
+    // Must stay in sync with STEP_COUNTER below — on a keyword-sparse wizard
+    // step these 2 points are the difference between 5 and threshold 6.
+    textPatterns: [[/\bstep\s*\d+\s*(?:\/|of)\s*\d+\b/i, 2]],
     keywords: [
       // observed on the LIVE wizard, 2026-07-25 (screenshot-verified)
       ["adult application instructions", 5],
@@ -222,10 +228,12 @@ const VALUE_BEARING = [
   "script", "style", "noscript", "template", "iframe", "object", "embed",
 ].join(",");
 
-// Backstop: 7+ digit runs (IDs, phones, invoice/application numbers) and emails.
+// Backstop: 7+ digit identifiers (IDs, phones, invoice/application numbers —
+// including when grouped by spaces, hyphens, slashes, dots or commas, which is
+// how DIS/Pesaflow format references) and emails.
 function redact(text) {
   return text
-    .replace(/\d[\d ]{5,}\d/g, (m) =>
+    .replace(/\d[\d\s\/\-.,]{5,}\d/g, (m) =>
       (m.match(/\d/g) || []).length >= 7 ? "[redacted]" : m,
     )
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[redacted]");
@@ -264,24 +272,48 @@ function readStructural() {
 //     TWICE (nav pill + section heading — one rendering counts once now),
 //     must look like a section name (4-40 chars, has letters, no emails or
 //     long digit runs), and passes redact() as a final backstop.
+const STEP_COUNTER = /\bstep\s*(\d{1,2})\s*(?:\/|of)\s*(\d{1,2})\b/i;
+
+function stepFrom(m) {
+  if (!m) return null;
+  const n = +m[1];
+  const t = +m[2];
+  return n >= 1 && t >= 2 && n <= t && t <= 20 ? { num: n, total: t } : null;
+}
+
 function parseWizardStep(clone, parts, counts) {
-  let num = 0;
-  let total = 0;
+  let found = null;
   const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const m = node.nodeValue
-      .replace(/\s+/g, " ")
-      .match(/\bstep\s*(\d{1,2})\s*(?:\/|of)\s*(\d{1,2})\b/i);
-    if (!m) continue;
-    const n = +m[1];
-    const t = +m[2];
-    if (n >= 1 && t >= 2 && n <= t && t <= 20) {
-      num = n;
-      total = t;
-      break;
+    found = stepFrom(node.nodeValue.replace(/\s+/g, " ").match(STEP_COUNTER));
+    if (found) break;
+  }
+  if (!found) {
+    // Vue splits counters across child spans ("Step <span>3</span> / <span>8</span>"),
+    // which defeats the per-text-node walk. Each `parts` entry is a single
+    // allowlisted element's own collapsed text (≤200 chars, form controls
+    // already purged), so \s* still cannot bridge two unrelated elements.
+    for (const p of parts) {
+      found = stepFrom(p.match(STEP_COUNTER));
+      if (found) break;
     }
   }
-  if (!total) return null;
+  if (!found) {
+    // Live DIS wizard (seen 2026-07-26): the counter lives in a card-header
+    // row OUTSIDE the allowlist, digits in a bold child ("Step <b>1 / 9</b>").
+    // Scan SMALL elements only — an element whose entire collapsed text fits
+    // in 40 chars and matches the counter IS the counter (or its immediate
+    // chrome); the length bound keeps \s* from bridging unrelated content.
+    for (const el of clone.querySelectorAll("*")) {
+      if (el.children.length > 4) continue;
+      const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 40) continue;
+      found = stepFrom(t.match(STEP_COUNTER));
+      if (found) break;
+    }
+  }
+  if (!found) return null;
+  const { num, total } = found;
 
   const titleOk = (t) =>
     t.length >= 4 &&
@@ -292,25 +324,57 @@ function parseWizardStep(clone, parts, counts) {
     !/\d{7,}/.test(t);
 
   // Candidates: duplicated structural text only. The wizard's active pill
-  // marker just prioritises among duplicates — it can never introduce a
-  // string that isn't independently rendered twice.
+  // marker prioritises among duplicates. The live DIS pills are radio-style
+  // (role=radio / aria-checked), so those markers are included too.
   const dupes = parts.filter((t) => (counts.get(t) || 0) >= 2 && titleOk(t));
-  const active = clone.querySelector(
-    '[aria-current], [role=tab][aria-selected="true"], .nav-link.active, .nav-item.active, .active > .nav-link',
-  );
+  const ariaCurrent = clone.querySelector("[aria-current]");
+  const active =
+    ariaCurrent ||
+    clone.querySelector(
+      '[role=tab][aria-selected="true"], [aria-checked="true"], ' +
+        '.nav-link.active, .nav-item.active, .active > .nav-link, ' +
+        '[class*="--current"], [class*="--active"]',
+    );
   const activeText = active
     ? (active.textContent || "").replace(/\s+/g, " ").trim()
     : "";
-  const title = dupes.find((t) => t === activeText) || dupes[0] || "";
+  const currentText = ariaCurrent
+    ? (ariaCurrent.textContent || "").replace(/\s+/g, " ").trim()
+    : "";
+  // Only trust the no-marker fallback when it is UNAMBIGUOUS: wizard chrome
+  // that renders its pill list twice puts EVERY section name in dupes, and
+  // dupes[0] would caption every step with the same wrong title. An empty
+  // title degrades gracefully downstream (generic suggestions, untitled
+  // explain prompt) — a wrong title poisons the explanation on stage.
+  // Last resort: [aria-current] is BY DEFINITION "the current item in a
+  // set" — trustworthy as a title even when the pill is the page's only
+  // rendering of the section name (aria-checked is NOT: checked form radios
+  // would leak answer captions like "50 pages" in as titles).
+  const title =
+    dupes.find((t) => t === activeText) ||
+    (dupes.length === 1 ? dupes[0] : "") ||
+    (currentText && titleOk(currentText) ? currentText : "");
   return { num, total, title: redact(title) };
 }
 
 function capture() {
+  // A non-HTML top-level document (XML sitemap, raw SVG) has no body.
+  if (!document.body) return { pageId: null, context: "", step: null };
   const { text, parts, counts, clone } = readStructural();
   if (looksLikeAuth(text)) return { pageId: null, context: "", step: null }; // rule 1
-  const pageId = detectPage(text);
-  const step = pageId === "form" ? parseWizardStep(clone, parts, counts) : null;
-  return { pageId, context: redact(text).slice(0, 4000), step };
+  // Parse the wizard counter BEFORE detection: the live counter may sit in
+  // chrome the allowlist misses, and on a keyword-sparse step its 2 points
+  // decide whether the form is recognised at all. The synthetic line feeds
+  // detection only — never the outgoing context.
+  const step = parseWizardStep(clone, parts, counts);
+  const pageId = detectPage(
+    step ? `${text}\nstep ${step.num} / ${step.total}` : text,
+  );
+  return {
+    pageId,
+    context: redact(text).slice(0, 4000),
+    step: pageId === "form" ? step : null,
+  };
 }
 
 // ---------- 4. privacy audit (the one place values are touched) ----------
@@ -338,6 +402,18 @@ function auditNoValueLeak() {
       checked.push({ field: "[password field]", leaked: context !== "" });
       return;
     }
+    // Radios, checkboxes, selects and button-like inputs hold PREDEFINED
+    // strings (their value/caption), not typed data — those strings
+    // legitimately duplicate visible labels ("50 pages", "Kenya", "Proceed
+    // to Pay") and would false-flag the audit. Rule 2 protects what the
+    // user TYPES; only typed-entry surfaces are audited.
+    const typed =
+      el.tagName === "TEXTAREA" ||
+      (el.tagName === "INPUT" &&
+        /^(text|search|email|tel|number|url|date|datetime-local|month|week|time)$/.test(
+          el.type,
+        ));
+    if (!typed) return;
     const value = (el.value || "").trim();
     if (!value) return;
     filled++;
@@ -364,8 +440,18 @@ function auditNoValueLeak() {
 // ---------- 5. publish to the extension ----------
 
 let last = { pageId: null, context: "", step: null };
+let observer = null;
 
 function push(force = false) {
+  // Reloading the extension while this tab is open ORPHANS this script: the
+  // MutationObserver keeps firing but chrome.runtime is gone and sendMessage
+  // throws synchronously — a .catch() on the promise never sees it. Detect
+  // the orphan and shut down quietly; only a tab refresh injects a live
+  // script again.
+  if (!chrome.runtime?.id) {
+    if (observer) observer.disconnect();
+    return;
+  }
   const next = capture();
   if (
     !force &&
@@ -376,9 +462,18 @@ function push(force = false) {
     return;
   }
   last = next;
-  chrome.runtime
-    .sendMessage({ type: "njia:context", ...next })
-    .catch(() => {}); // worker may be mid-restart; the next push catches up
+  try {
+    chrome.runtime
+      .sendMessage({ type: "njia:context", ...next })
+      .catch(() => {
+        // Worker mid-restart: the message was LOST. Poison the dedupe so the
+        // next capture (mutation or panel pull) re-sends rather than assuming
+        // this one arrived.
+        last = { pageId: null, context: " unsent", step: null };
+      });
+  } catch {
+    if (observer) observer.disconnect(); // context invalidated mid-call
+  }
 }
 
 // The side panel can pull on demand (e.g. it opened after this page loaded).
@@ -386,17 +481,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "njia:get-context") {
     last = capture();
     sendResponse(last);
+    // A pull means the worker's stored copy may have been wiped (navigation
+    // events fire for aborted downloads too, with no DOM change to trigger a
+    // re-push) — restore storage + badge alongside the direct answer.
+    try {
+      chrome.runtime.sendMessage({ type: "njia:context", ...last }).catch(() => {});
+    } catch {
+      /* context invalidated — the direct response above already served */
+    }
   } else if (msg?.type === "njia:audit") {
     sendResponse(auditNoValueLeak());
   }
 });
 
 // Initial read at document_idle, then re-read on meaningful DOM changes. The
-// real portal is a Vue SPA — steps swap without a page load.
-push(true);
-
+// real portal is a Vue SPA — steps swap without a page load. Non-HTML
+// documents (XML, SVG) have no body: nothing to read or observe there.
 let debounce = null;
-new MutationObserver(() => {
-  clearTimeout(debounce);
-  debounce = setTimeout(() => push(), 800);
-}).observe(document.body, { childList: true, subtree: true, characterData: true });
+if (document.body) {
+  push(true);
+  observer = new MutationObserver(() => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => push(), 800);
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+}

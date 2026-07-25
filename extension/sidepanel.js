@@ -254,7 +254,10 @@ async function refreshContext() {
   updateChip();
   renderSuggestions();
   if (current.pageId) {
-    setStatus("");
+    // Keep a failed request's error + "Try again" visible: a background
+    // context push (any SPA mutation re-triggers this) must not silently
+    // destroy the user's only handle on the lost question.
+    if (!els.status.querySelector("button")) setStatus("");
     await maybeExplain();
   } else {
     setStatus(

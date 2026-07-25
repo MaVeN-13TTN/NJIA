@@ -74,11 +74,12 @@ The redaction happens in client-side code you can read — the privacy claim is 
 
 - **Extension:** vanilla JS + HTML + CSS, Manifest V3, `chrome.sidePanel` — no framework, no bundler (keeps it MV3-CSP-safe and fast to build).
 - **Proxy:** Node + Express → Anthropic Messages API.
-- **Mock portal:** static HTML replicas of the three pages for a safe live demo.
+- **Knowledge retrieval:** a small Python pipeline (BM25 over verified, version-stamped sources) the proxy calls per request.
+- **Mock portal:** static HTML replicas of the three pages for a safe live demo — maintained in its own repository, cloned locally for the demo.
 
 ## 🚀 Getting started
 
-**Prerequisites:** Chrome 114+, Node 18+, Python 3 (for the mock portal), and an [Anthropic API key](https://console.anthropic.com).
+**Prerequisites:** Chrome 114+, Node 18+, Python 3 (the proxy shells out to it for knowledge retrieval), and an [Anthropic API key](https://console.anthropic.com).
 
 ```bash
 git clone https://github.com/MaVeN-13TTN/NJIA && cd NJIA
@@ -87,17 +88,23 @@ git clone https://github.com/MaVeN-13TTN/NJIA && cd NJIA
 **1. Run the Claude proxy** 🧠
 
 ```bash
+pip install -r requirements.txt   # retrieval deps (rank_bm25 …) — the proxy needs these
 cd proxy
 cp .env.example .env        # paste your Claude.ai account's API key
+                            # on Windows also set PYTHON_BIN=python
 npm install
-node server.js              # http://localhost:8787
+node server.js              # http://localhost:8787 — wait for "knowledge retrieval OK"
 ```
 
-**2. Serve the mock portal** 🖥️
+**2. Open the portal** 🖥️
+
+- **Development:** log in at [dis.ecitizen.go.ke](https://dis.ecitizen.go.ke) and open the passport application — Njia activates on the form, payment, and appointment pages.
+- **Demo:** clone the mock portal (separate repo) and serve it locally:
 
 ```bash
-cd mock-portal
-python3 -m http.server 5500 # pages at http://localhost:5500/form.html
+git clone <mock-portal-repo-url> njia-mock-portal
+cd njia-mock-portal
+python -m http.server 5500  # pages at http://localhost:5500/form.html
 ```
 
 **3. Load the extension** 🧩
@@ -105,7 +112,7 @@ python3 -m http.server 5500 # pages at http://localhost:5500/form.html
 - Open `chrome://extensions`
 - Enable **Developer mode**
 - **Load unpacked** → select the `extension/` folder
-- Click the **Njia** icon on a mock page to open the side panel ✨
+- Click the **Njia** icon on a checkpoint page to open the side panel ✨
 
 ## 📁 Project structure
 
@@ -113,17 +120,22 @@ python3 -m http.server 5500 # pages at http://localhost:5500/form.html
 njia/
 ├── extension/        # 🧩 MV3 extension: manifest, service worker, content script, side panel
 │   └── icons/        #    generated icon set (16/32/48/128)
-├── proxy/            # 🧠 Claude proxy — holds the key, injects the knowledge pack
-│   └── knowledge/    # 📚 the verified passport knowledge pack
-├── mock-portal/      # 🖥️ static replicas of the 3 eCitizen pages (demo target)
+├── proxy/            # 🧠 Claude proxy — holds the key, injects the grounding block
+│   └── grounding.py  #    bridge to the Python retriever
+├── data/             # 📚 verified knowledge sources + BM25 chunk index
+├── scrape.py         # 🔎 fetch official pages → data/raw/
+├── build_index.py    # 🧱 chunk data/raw/ → data/index/chunks.json
+├── retrieve.py       # 🎯 BM25 retrieval + grounding block
 ├── CLAUDE.md         # 🤖 project guide for Claude Code (architecture, rules, facts)
 ├── HANDOFF.md        # 📋 build-night plan and ownership
 └── README.md         # 📖 you are here
 ```
 
+> 🖥️ The **mock portal** (static replicas of the 3 eCitizen pages, the demo target) lives in its own repository and is cloned separately.
+
 ## 🎬 Demo
 
-The live demo runs against the **local mock portal** — never a real eCitizen account with real personal data on screen. Because Njia targets page _structure_, it runs identically on the real portal. The three-minute story:
+The live demo runs against the **mock portal** (its own repo, served locally) — never a real eCitizen account with real personal data on screen. Because Njia targets page _structure_, it runs identically on the real portal — which is exactly how it's verified during development. The three-minute story:
 
 1. 🌍 The problem — three current sources, three different passport prices.
 2. 🧭 The walkthrough — open a page, Njia explains it; ask a question, get a grounded answer.
