@@ -1,0 +1,8 @@
+# secrets — the API key lives only in proxy/.env, never in git
+proxy/.env
+
+# dependencies / caches
+proxy/node_modules/
+__pycache__/
+*.pyc
+.venv/
