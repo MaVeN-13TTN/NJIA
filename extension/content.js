@@ -62,8 +62,13 @@ const PAGE_RULES = [
     // plus the mock's form.html
     urlHints: [/\/apply\b/i, /\/edit\b/i, /[?&]step=/i, /form/i],
     urlWeight: 3,
-    // A wizard-style ?step=N URL is a strong form signal on its own.
-    urlPatterns: [[/[?&]step=\d/i, 2]],
+    // A wizard-style ?step=N URL or the /services/N/apply entry route is a
+    // strong form signal on its own (the entry page's visible text is too
+    // generic to clear the threshold otherwise).
+    urlPatterns: [
+      [/[?&]step=\d/i, 2],
+      [/\/services\/\d+\/apply\b/i, 3],
+    ],
     // "Step 1 / 8" style progress counters (live-portal wizard chrome).
     textPatterns: [[/\bstep\s*\d+\s*\/\s*\d+\b/i, 2]],
     keywords: [
@@ -235,6 +240,12 @@ function readStructural() {
   const docTitle = (document.title || "").trim();
   if (docTitle) parts.push(docTitle);
   clone.querySelectorAll(STRUCTURE_SELECTORS).forEach((el) => {
+    // Nested allowlist matches (.nav-item > .nav-link, .card-header >
+    // .card-title) are ONE rendering, not two — keep the outermost only, or
+    // every nav pill self-duplicates and poisons the counts heuristic below.
+    if (el.parentElement && el.parentElement.closest(STRUCTURE_SELECTORS)) {
+      return;
+    }
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
     if (!t || t.length > 200) return;
     counts.set(t, (counts.get(t) || 0) + 1);
@@ -244,26 +255,54 @@ function readStructural() {
 }
 
 // The live form is an 8-step wizard; guidance must track the step the user is
-// actually on. The "Step N / M" counter is REGEX-extracted from the purged
-// clone, so it structurally cannot carry user data (the match is digits in a
-// fixed phrase). The section title heuristic exploits the wizard rendering
-// the active section's name twice — once in the FORM NAVIGATION pills, once
-// as the section heading — so the first short duplicate is the active step.
+// actually on. Safety properties of this parser:
+//   - The counter is matched per TEXT NODE (never whole-body text), so \s*
+//     cannot bridge unrelated elements, and captures are bounded to 2 digits
+//     with sanity checks — at most "99" of user-adjacent digits could ever
+//     ride along, and in practice none.
+//   - The title comes only from allowlisted structural text that appears
+//     TWICE (nav pill + section heading — one rendering counts once now),
+//     must look like a section name (4-40 chars, has letters, no emails or
+//     long digit runs), and passes redact() as a final backstop.
 function parseWizardStep(clone, parts, counts) {
-  const m = (clone.textContent || "").match(/step\s*(\d+)\s*(?:\/|of)\s*(\d+)/i);
-  if (!m) return null;
-  const step = { num: +m[1], total: +m[2], title: "" };
-  for (const t of parts) {
-    if (
-      t.length <= 40 &&
-      (counts.get(t) || 0) >= 2 &&
-      !/step|navigation|passport application/i.test(t)
-    ) {
-      step.title = t;
+  let num = 0;
+  let total = 0;
+  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const m = node.nodeValue
+      .replace(/\s+/g, " ")
+      .match(/\bstep\s*(\d{1,2})\s*(?:\/|of)\s*(\d{1,2})\b/i);
+    if (!m) continue;
+    const n = +m[1];
+    const t = +m[2];
+    if (n >= 1 && t >= 2 && n <= t && t <= 20) {
+      num = n;
+      total = t;
       break;
     }
   }
-  return step;
+  if (!total) return null;
+
+  const titleOk = (t) =>
+    t.length >= 4 &&
+    t.length <= 40 &&
+    /[a-z]/i.test(t) &&
+    !/step|navigation|passport application/i.test(t) &&
+    !t.includes("@") &&
+    !/\d{7,}/.test(t);
+
+  // Candidates: duplicated structural text only. The wizard's active pill
+  // marker just prioritises among duplicates — it can never introduce a
+  // string that isn't independently rendered twice.
+  const dupes = parts.filter((t) => (counts.get(t) || 0) >= 2 && titleOk(t));
+  const active = clone.querySelector(
+    '[aria-current], [role=tab][aria-selected="true"], .nav-link.active, .nav-item.active, .active > .nav-link',
+  );
+  const activeText = active
+    ? (active.textContent || "").replace(/\s+/g, " ").trim()
+    : "";
+  const title = dupes.find((t) => t === activeText) || dupes[0] || "";
+  return { num, total, title: redact(title) };
 }
 
 function capture() {
