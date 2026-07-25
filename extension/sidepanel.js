@@ -12,10 +12,48 @@ const MAX_HISTORY_STORED = 40; // UI entries kept locally
 const MAX_HISTORY_SENT = 12; // messages sent to the proxy per request
 
 const PAGE_LABELS = {
-  form: "Step 1 · Application form",
-  payment: "Step 2 · Payment",
-  appointment: "Step 3 · Appointment",
+  form: "Application form",
+  payment: "Payment",
+  appointment: "Appointment",
 };
+
+// Step-targeted suggestions for the form wizard, matched against the active
+// section title content.js extracts. Falls through to SUGGESTIONS.form when
+// the title is unknown.
+const STEP_SUGGESTIONS = [
+  [/categor/i, [
+    "Which category applies to a first-time adult applicant?",
+    "Can I apply on behalf of my child too?",
+  ]],
+  [/instruction/i, [
+    "Summarise these instructions for me",
+    "What mistakes get applications rejected?",
+  ]],
+  [/dual national/i, [
+    "I'm only a Kenyan citizen — what do I fill here?",
+    "I hold two citizenships — what must I declare?",
+  ]],
+  [/passport type/i, [
+    "Which booklet should I choose and what does it cost?",
+    "What's the difference between the booklet sizes?",
+  ]],
+  [/applicant detail/i, [
+    "My ID and birth certificate names differ — what now?",
+    "Which birth certificate number do I enter?",
+  ]],
+  [/parent|guardian|family|kin/i, [
+    "What if one of my parents is deceased?",
+    "Whose ID numbers do I need here?",
+  ]],
+  [/document|upload|attachment/i, [
+    "What documents do I upload, and in what format?",
+    "What are the passport photo requirements?",
+  ]],
+  [/preview|review|declaration/i, [
+    "What should I double-check before submitting?",
+    "What happens after I submit?",
+  ]],
+];
 
 const SUGGESTIONS = {
   form: [
@@ -52,7 +90,7 @@ const els = {
 };
 
 let currentTabId = null;
-let current = { pageId: null, context: "" };
+let current = { pageId: null, context: "", step: null };
 // history entries: { role: "user"|"assistant", content, hidden? }
 // `hidden` = sent to the proxy for continuity but not rendered (the implicit
 // "explain this step" behind each proactive explanation).
@@ -144,12 +182,27 @@ function setBusy(b) {
 
 function updateChip() {
   const label = PAGE_LABELS[current.pageId];
-  els.chip.textContent = label || "No step detected";
+  let text = label || "No step detected";
+  if (label && current.step) {
+    text = `Form · step ${current.step.num}/${current.step.total}`;
+  }
+  els.chip.textContent = text;
+  els.chip.title = current.step?.title || "Detected step";
   els.chip.classList.toggle("chip-off", !label);
 }
 
+function suggestionsFor() {
+  const title = current.pageId === "form" && current.step?.title;
+  if (title) {
+    for (const [re, list] of STEP_SUGGESTIONS) {
+      if (re.test(title)) return list;
+    }
+  }
+  return SUGGESTIONS[current.pageId] || [];
+}
+
 function renderSuggestions() {
-  const list = SUGGESTIONS[current.pageId] || [];
+  const list = suggestionsFor();
   els.suggestions.textContent = "";
   els.suggestions.hidden = list.length === 0;
   for (const q of list) {
@@ -193,7 +246,7 @@ async function refreshContext() {
       .sendMessage(currentTabId, { type: "njia:get-context" })
       .catch(() => null);
   }
-  current = ctx && ctx.pageId ? ctx : { pageId: null, context: "" };
+  current = ctx && ctx.pageId ? ctx : { pageId: null, context: "", step: null };
   updateChip();
   renderSuggestions();
   if (current.pageId) {
@@ -296,21 +349,32 @@ async function maybeExplain() {
   explainInFlight = true;
   const snap = current;
   const epoch = chatEpoch;
+  // Explanations are owed once per wizard sub-step, not once per checkpoint —
+  // clicking NEXT through the 8-step form must re-explain each section.
+  const key = snap.step ? `${snap.pageId}#${snap.step.num}` : snap.pageId;
   try {
     const { explained = {} } = await chrome.storage.session.get("explained");
-    if (explained[snap.pageId]) return;
-    explained[snap.pageId] = true;
+    if (explained[key]) return;
+    explained[key] = true;
     await chrome.storage.session.set({ explained });
+
+    // Step-specific prompt when we know the section; otherwise "" lets the
+    // proxy substitute its per-checkpoint default.
+    const q = snap.step
+      ? `I'm on step ${snap.step.num} of ${snap.step.total} of the passport application form${
+          snap.step.title ? ` ("${snap.step.title}")` : ""
+        }. Briefly explain what this step asks for and what a first-time applicant should watch out for.`
+      : "";
 
     setBusy(true);
     const typing = showTyping();
     try {
-      const answer = await callProxy("", snap); // proxy substitutes its default prompt
+      const answer = await callProxy(q, snap);
       if (epoch !== chatEpoch) return; // cleared mid-flight — drop the result
       history.push(
         {
           role: "user",
-          content: "Explain this step for a first-time applicant.",
+          content: q || "Explain this step for a first-time applicant.",
           hidden: true,
         },
         { role: "assistant", content: answer },
@@ -321,10 +385,10 @@ async function maybeExplain() {
       if (epoch !== chatEpoch) return; // deliberate abort via Clear — stay quiet
       // Don't burn the once-per-session flag on a failed call — re-read the
       // map rather than writing back our stale copy, and delete the entry for
-      // the page that FAILED (snap), not whatever page is current by now.
+      // the step that FAILED (key), not whatever step is current by now.
       const got = await chrome.storage.session.get("explained");
       const map = got.explained || {};
-      delete map[snap.pageId];
+      delete map[key];
       await chrome.storage.session.set({ explained: map });
       setStatus(classifyError(e), () => maybeExplain());
     } finally {

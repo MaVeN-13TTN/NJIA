@@ -226,31 +226,52 @@ function redact(text) {
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[redacted]");
 }
 
-function readStructuralText() {
+function readStructural() {
   const clone = document.body.cloneNode(true);
   clone.querySelectorAll(VALUE_BEARING).forEach((el) => el.remove());
 
-  const seen = new Set();
+  const counts = new Map(); // pre-dedupe occurrence counts (see parseWizardStep)
   const parts = [];
-  const title = (document.title || "").trim();
-  if (title) {
-    seen.add(title);
-    parts.push(title);
-  }
+  const docTitle = (document.title || "").trim();
+  if (docTitle) parts.push(docTitle);
   clone.querySelectorAll(STRUCTURE_SELECTORS).forEach((el) => {
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-    if (t && t.length <= 200 && !seen.has(t)) {
-      seen.add(t);
-      parts.push(t);
-    }
+    if (!t || t.length > 200) return;
+    counts.set(t, (counts.get(t) || 0) + 1);
+    if (counts.get(t) === 1 && t !== docTitle) parts.push(t);
   });
-  return parts.join("\n");
+  return { text: parts.join("\n"), parts, counts, clone };
+}
+
+// The live form is an 8-step wizard; guidance must track the step the user is
+// actually on. The "Step N / M" counter is REGEX-extracted from the purged
+// clone, so it structurally cannot carry user data (the match is digits in a
+// fixed phrase). The section title heuristic exploits the wizard rendering
+// the active section's name twice — once in the FORM NAVIGATION pills, once
+// as the section heading — so the first short duplicate is the active step.
+function parseWizardStep(clone, parts, counts) {
+  const m = (clone.textContent || "").match(/step\s*(\d+)\s*(?:\/|of)\s*(\d+)/i);
+  if (!m) return null;
+  const step = { num: +m[1], total: +m[2], title: "" };
+  for (const t of parts) {
+    if (
+      t.length <= 40 &&
+      (counts.get(t) || 0) >= 2 &&
+      !/step|navigation|passport application/i.test(t)
+    ) {
+      step.title = t;
+      break;
+    }
+  }
+  return step;
 }
 
 function capture() {
-  const raw = readStructuralText();
-  if (looksLikeAuth(raw)) return { pageId: null, context: "" }; // rule 1
-  return { pageId: detectPage(raw), context: redact(raw).slice(0, 4000) };
+  const { text, parts, counts, clone } = readStructural();
+  if (looksLikeAuth(text)) return { pageId: null, context: "", step: null }; // rule 1
+  const pageId = detectPage(text);
+  const step = pageId === "form" ? parseWizardStep(clone, parts, counts) : null;
+  return { pageId, context: redact(text).slice(0, 4000), step };
 }
 
 // ---------- 4. privacy audit (the one place values are touched) ----------
@@ -303,11 +324,16 @@ function auditNoValueLeak() {
 
 // ---------- 5. publish to the extension ----------
 
-let last = { pageId: null, context: "" };
+let last = { pageId: null, context: "", step: null };
 
 function push(force = false) {
   const next = capture();
-  if (!force && next.pageId === last.pageId && next.context === last.context) {
+  if (
+    !force &&
+    next.pageId === last.pageId &&
+    next.context === last.context &&
+    JSON.stringify(next.step) === JSON.stringify(last.step)
+  ) {
     return;
   }
   last = next;

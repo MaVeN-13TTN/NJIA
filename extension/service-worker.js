@@ -19,7 +19,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   const tabId = sender.tab.id;
 
   chrome.storage.session.set({
-    ["ctx:" + tabId]: { pageId: msg.pageId, context: msg.context },
+    ["ctx:" + tabId]: {
+      pageId: msg.pageId,
+      context: msg.context,
+      step: msg.step || null,
+    },
   });
 
   // Badge = "Njia recognises this step" cue on the toolbar icon.
