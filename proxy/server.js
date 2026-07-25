@@ -24,7 +24,7 @@ const path = require("path");
 const express = require("express");
 
 const PORT = 8787;
-const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
+const MODEL = process.env.CLAUDE_MODEL || "claude-3-7-sonnet-20250219";
 const PYTHON = process.env.PYTHON_BIN || "python3";
 const GROUNDING_SCRIPT = path.join(__dirname, "grounding.py");
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
