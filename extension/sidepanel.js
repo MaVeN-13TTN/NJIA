@@ -45,11 +45,23 @@ const STEP_SUGGESTIONS = [
     "What if one of my parents is deceased?",
     "Whose ID numbers do I need here?",
   ]],
-  [/document|upload|attachment/i, [
+  [/document|upload|attachment|photo/i, [
     "What documents do I upload, and in what format?",
     "What are the passport photo requirements?",
   ]],
-  [/preview|review|declaration/i, [
+  [/recommend/i, [
+    "Do I still need a recommender?",
+    "Who qualifies as a recommending officer?",
+  ]],
+  [/residence|address|contact/i, [
+    "What do I enter for my residence details?",
+    "I live abroad — what do I put here?",
+  ]],
+  [/travel|peculiarit/i, [
+    "What do I write for reason for travel?",
+    "What are 'special peculiarities'?",
+  ]],
+  [/preview|review|declaration|submit/i, [
     "What should I double-check before submitting?",
     "What happens after I submit?",
   ]],
@@ -197,11 +209,27 @@ function updateChip() {
 }
 
 function suggestionsFor() {
-  const title = current.pageId === "form" && current.step?.title;
-  if (title) {
-    for (const [re, list] of STEP_SUGGESTIONS) {
-      if (re.test(title)) return list;
+  if (current.pageId === "form" && current.step) {
+    const title = current.step.title;
+    if (title) {
+      for (const [re, list] of STEP_SUGGESTIONS) {
+        if (re.test(title)) return list;
+      }
+      // Section we've never catalogued (the live wizard evolves) — build the
+      // questions from the title itself so the chips still track the page.
+      // The title is content.js-redacted structural text, ≤60 chars.
+      return [
+        `What does the "${title}" section ask for?`,
+        "What mistakes should I avoid on this section?",
+        "How much will this cost and how do I pay?",
+      ];
     }
+    // Step number known but no title — still better than the static trio.
+    return [
+      `What does step ${current.step.num} of ${current.step.total} ask for?`,
+      "What mistakes get applications rejected?",
+      "What documents do I need?",
+    ];
   }
   return SUGGESTIONS[current.pageId] || [];
 }

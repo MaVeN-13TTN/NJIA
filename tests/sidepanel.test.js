@@ -226,6 +226,27 @@ const SECTIONS = [
     check("Documents Upload step swaps to upload questions",
       p.suggestions().some((s) => /documents do I upload/i.test(s)),
       p.suggestions().join(" | "));
+
+    await p.setStep(6, "Recommender");
+    await wait(PROXY_LATENCY + 120);
+    check("Recommender step asks about the recommending officer",
+      p.suggestions().some((s) => /recommender/i.test(s)),
+      p.suggestions().join(" | "));
+
+    // a section we've never catalogued → title-derived questions, not the trio
+    await p.setStep(8, "Minor Applicant Consent");
+    await wait(PROXY_LATENCY + 120);
+    check("unknown section gets title-derived questions",
+      p.suggestions().some((s) => s.includes(`"Minor Applicant Consent" section`)),
+      p.suggestions().join(" | "));
+
+    // step number without a title → step-derived questions, not the trio
+    await p.setStep(9, "");
+    await wait(PROXY_LATENCY + 120);
+    check("titleless step gets step-number questions",
+      p.suggestions().some((s) => /step 9 of 8|step 9/.test(s)) &&
+      !p.suggestions().every((s) => /cost|documents do I need|names differ/i.test(s)),
+      p.suggestions().join(" | "));
   }
 
   // 3 ─────────────────────────────────────────────────────────────────────
