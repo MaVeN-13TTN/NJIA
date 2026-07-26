@@ -101,11 +101,16 @@ def grounding_block(question: str, page_context: str = "",language="en") -> str:
         )
     parts.append("</verified_knowledge>")
     parts.append(
-        "Answer ONLY from the verified knowledge above. Cite the verification "
-        "date when stating fees or requirements. If the knowledge does not "
-        "cover the question, say so plainly and point the user to "
-        "immigration.go.ke or the eCitizen portal — never guess a fee, "
-        "document requirement, or timeline from memory."
+        "The system prompt also shows the STRUCTURE of the page the applicant "
+        "is on (headings, labels, step names). Describing and explaining what "
+        "is visibly on that page is always allowed — walk them through the "
+        "step they are looking at. For FACTS — fees, document requirements, "
+        "timelines, centre lists — use ONLY the verified knowledge above, and "
+        "cite the verification date when stating fees or requirements. If "
+        "neither the page structure nor the verified knowledge covers the "
+        "question, say so plainly and point the user to immigration.go.ke or "
+        "the eCitizen portal — never guess a fee, document requirement, or "
+        "timeline from memory."
     )
     return "\n".join(parts)
 

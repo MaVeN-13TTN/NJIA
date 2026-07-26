@@ -41,7 +41,8 @@ const DEFAULT_QUESTION = "Explain this step for a first-time applicant.";
 const STEP_FOCUS = {
   form: [
     "The user is on the passport APPLICATION FORM (Form 19 — on the live portal",
-    "it is an 8-step wizard). Explain what the current step asks for and what a",
+    "it is a multi-step wizard; 9 steps as of 2026-07-26). Explain what the",
+    "current step asks for USING THE PAGE STRUCTURE YOU CAN SEE, and what a",
     "first-time applicant should watch out for. The single most common failure",
     "is a name or date-of-birth mismatch between national ID and birth",
     "certificate — warn about it when relevant.",
